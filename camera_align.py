@@ -20,7 +20,7 @@ def returnCameraIndexes():
 	return arr
 
 #print(returnCameraIndexes())
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, camera_resolution[0])
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_resolution[1])
 
@@ -45,7 +45,7 @@ vsource.resolution = camera_resolution
 def updateFrame(videosource):
 	while(True):
 		videosource.retval, videosource.currentFrame = videosource.source.read()
-		cv2.waitKey(1)
+		# cv2.waitKey(1)
 
 #Starts continuosly updating the images in a thread - if we don't do this, old images get stuck in the video buffer
 _thread.start_new_thread(updateFrame,(vsource,))

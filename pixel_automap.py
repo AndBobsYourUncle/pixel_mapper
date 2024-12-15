@@ -8,30 +8,69 @@ import socket
 import sys  
 import json
 import time
-from lumos import DMXSource
+import sacn
 import _thread
 import matplotlib.path as pltPath
 from playsound import playsound
+import requests
+
+def flatten(xss):
+	return [x for xs in xss for x in xs]
+
+def update_leds(uni_num: int, data: list):
+	url = 'http://192.168.20.100/json/state'
+
+	led_data = []
+
+	starting_pixel = (uni_num-1) * 170
+
+	# group the data into triplets
+	data = [(data[num:num+3]) for num in range(0, len(data), 3)]
+
+	for i, val in enumerate(data):
+		# convert the RGB values to a hex color code, and append it to the list with the first number being the pixel number
+		led_data.append([starting_pixel + i, f"{val[0]:02x}{val[1]:02x}{val[2]:02x}"])
+
+	requests.post(url, json={"seg": {"i": flatten(led_data)}})
+
+# UNCOMMENT FOR E1.31 sACN
+# sender = sacn.sACNsender()  # provide an IP-Address to bind to if you want to send multicast packets from a specific interface
+# sender.start()  # start the sending thread
 
 class Universe:
-	def __init__(self,source,channelcount):
+	def __init__(self,source,channelcount,universe_number):
 		self.source = source
+		self.universe_number = universe_number
 		self.pixelcount = int(channelcount/3)
 
+	def send_data(self,data):
+		# UNCOMMENT FOR E1.31 sACN
+		# self.source.dmx_data = tuple(data)
+		update_leds(self.universe_number, data)
+
 #EDIT THESE LINES AS NEEDED******************************************************
-#Configure the Universes to send to when controlling the pixels
-#format is as follows:
-#U1 = Universe(DMXSource(universe=UNIVERSE NUMBER),NUMBER OF CHANNELS IN THE UNIVERSE)  #for RGB pixels, there are three channels per pixel
-U1 = Universe(DMXSource(universe=2000),510)
-U2 = Universe(DMXSource(universe=2001),510)
-U3 = Universe(DMXSource(universe=2002),510)
-U4 = Universe(DMXSource(universe=2003),510)
-U5 = Universe(DMXSource(universe=2004),60)
-universes = [U3]
-totalpixels = 190                 #total number of pixels to map
+totalpixels = 500                 #total number of pixels to map
+
+number_universes = totalpixels // 170
+
+universes = []
+
+pixels_left = totalpixels
+
+for i in range(number_universes+1):
+	channels = 510 if pixels_left >= 170 else pixels_left*3
+	pixels_left -= 170
+
+	# UNCOMMENT FOR E1.31 sACN
+	# sender.activate_output(i+1)
+	# sender[i+1].destination = "192.168.20.100"
+	# universes.append(Universe(sender[i+1],channels,i+1))
+
+	universes.append(Universe(False,channels,i+1))
+
 #cap = cv2.VideoCapture('rtsp://user:password@ip.addr.of.cam:88/videoMain')  #Foscam X1 address format - others will be different
 camera_resolution = [1920,1080]   #resolution (in pixels) of the camera [Horizontal, Vertical]
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, camera_resolution[0])
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_resolution[1])
 onval = [255,255,255]             #RGB value to use when turning the pixels on for detection
@@ -63,7 +102,7 @@ WORKING_LINE_COLOR = (127, 127, 127)
 def updateFrame(videosource):
 	while(True):
 		videosource.retval, videosource.currentFrame = videosource.source.read()
-		cv2.waitKey(1)
+		# cv2.waitKey(1)
 
 #Starts continuosly updating the images in a thread - if we don't do this, old images get stuck in the video buffer
 _thread.start_new_thread(updateFrame,(vsource,))
@@ -136,11 +175,11 @@ output = []
 def all_off():
 	#shut all pixels off
 	for universe in universes:
-		universe.source.send_data(data=[0,0,0]*universe.pixelcount)
+		universe.send_data(data=[0,0,0]*universe.pixelcount)
 def everyother():
 	#turn every other pixel on - for testing
 	for universe in universes:
-		universe.source.send_data(data=onval*universe.pixelcount)
+		universe.send_data(data=onval*universe.pixelcount)
 		counter = 0
 		for i,element in enumerate(data):
 			if counter == 3 or counter == 4 or counter == 5:
@@ -151,8 +190,7 @@ def everyother():
 def all_on():
 	#turn all pixels on white
 	for universe in universes:
-		universe.source.send_data(data=onval*universe.pixelcount)
-
+		universe.send_data(data=onval*universe.pixelcount)
 
 
 #Polygon masking - turn on all pixels and allow the user to draw a polygon around them to prevent
@@ -195,7 +233,7 @@ for unum, universe in enumerate(universes):
 			cv2.imshow("Camera1",image_off)
 			cv2.resizeWindow("Camera1", 800, 600);
 			cv2.waitKey(500)
-			universe.source.send_data(data=[0,0,0]*(index) + onval + [0,0,0]*(universe.pixelcount-index-1))
+			universe.send_data(data=[0,0,0]*(index) + onval + [0,0,0]*(universe.pixelcount-index-1))
 			time.sleep(0.7)
 			image = vsource.currentFrame
 			print("image")
@@ -297,6 +335,9 @@ for unum, universe in enumerate(universes):
 		with open(outfilename.replace('.json','.txt'), 'a') as outfile:
 			outfile.write(str(unum*170+index) + ',' + str(vsource.outputpoints[unum*170+index][1]) + ',' + str(vsource.outputpoints[unum*170+index][2]) + "\n")
 all_off()
+
+# UNCOMMENT FOR E1.31 sACN
+# sender.stop()
 
 with open(outfilename, 'w') as outfile:
 	#json.dump([sorted_by_pixel_x, sorted_by_pixel_y], outfile)
